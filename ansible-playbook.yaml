@@ -1,0 +1,89 @@
+---
+- name: Configure LXC container
+  hosts: all
+  remote_user: root
+  become: yes
+  vars_prompt:
+    - name: new_username
+      prompt: Enter username for new user
+      private: no
+    - name: new_password
+      prompt: Enter password for new user
+      private: yes
+
+  tasks:
+    - name: Create new user
+      user:
+        name: "{{ new_username }}"
+        password: "{{ new_password | password_hash('sha512') }}"
+        shell: /bin/bash
+        state: present
+        create_home: yes
+
+    - name: Add user to sudo group
+      user:
+        name: "{{ new_username }}"
+        groups: sudo
+        append: yes
+
+    - name: Create .ssh directory for new user
+      file:
+        path: "/home/{{ new_username }}/.ssh"
+        state: directory
+        mode: '0700'
+        owner: "{{ new_username }}"
+        group: "{{ new_username }}"
+
+    - name: Copy SSH public key
+      copy:
+        src: "~/.ssh/id_rsa.pub"
+        dest: "/home/{{ new_username }}/.ssh/authorized_keys"
+        mode: '0600'
+        owner: "{{ new_username }}"
+        group: "{{ new_username }}"
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Upgrade all packages
+      apt:
+        upgrade: yes
+
+    - name: Download Miniconda installer
+      command: curl -o /tmp/miniconda.sh https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+      args:
+        creates: /tmp/miniconda.sh
+
+    - name: Set Miniconda installer permissions
+      file:
+        path: /tmp/miniconda.sh
+        mode: '0755'
+
+    - name: Install Miniconda
+      shell: /tmp/miniconda.sh -b -p /home/{{ new_username }}/miniconda
+      args:
+        creates: /home/{{ new_username }}/miniconda
+      become_user: "{{ new_username }}"
+
+    - name: Clean up Miniconda installer
+      file:
+        path: /tmp/miniconda.sh
+        state: absent
+
+    - name: Add conda to PATH in .bashrc
+      lineinfile:
+        path: "/home/{{ new_username }}/.bashrc"
+        line: 'export PATH="/home/{{ new_username }}/miniconda/bin:$PATH"'
+        state: present
+        create: yes
+        owner: "{{ new_username }}"
+        group: "{{ new_username }}"
+
+    - name: Initialize conda in .bashrc
+      lineinfile:
+        path: "/home/{{ new_username }}/.bashrc"
+        line: 'eval "$(~/miniconda/bin/conda shell.bash hook)"'
+        state: present
+        owner: "{{ new_username }}"
+        group: "{{ new_username }}"
